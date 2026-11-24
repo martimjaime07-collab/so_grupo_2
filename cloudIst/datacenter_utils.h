@@ -63,8 +63,9 @@ int reservation_validate(DataCenter *dc, Reservation *reservation) {
 	for (size_t i = 0; i < reservation->items_count; i++) {
 		size_t amount = reservation->items[i].amount;
 
-    if (amount == 0 || amount > MAX_RESERVATION_VMS - total_vms) {
+        if (amount == 0 || amount > MAX_RESERVATION_VMS - total_vms) {
 			fprintf(stderr, "Reservation exceeds VM limit or has zero VMs.\n");
+			pthread_mutex_unlock(&dc->lock);
 			return 1;
     }
 
@@ -266,12 +267,16 @@ void vm_destroy(DataCenter *dc, pid_t term_vm) {
 
 			vm_to_destroy = vm;
 
+			char base_dir[MAX_PATH_SIZE];
 			char vm_dir[MAX_PATH_SIZE];
-			int written = snprintf(vm_dir, sizeof(vm_dir), "%s/%s/%s",
-			                       CLOUDIST_ROOT, reservation->id, vm->id);
 
-			if (written > 0 && (size_t)written < sizeof(vm_dir))
-				remove_dir_recursive(vm_dir);
+			if (cloudist_base_dir(base_dir, sizeof(base_dir)) == 0) {
+				int written = snprintf(vm_dir, sizeof(vm_dir), "%s/%s/%s",
+				                       base_dir, reservation->id, vm->id);
+
+				if (written > 0 && (size_t)written < sizeof(vm_dir))
+					remove_dir_recursive(vm_dir);
+			}
 
 			reservation->vms[k] = NULL;
 			reservation->running_vms--;
@@ -324,12 +329,16 @@ void reservation_destroy(DataCenter *dc, Reservation *reservation) {
 	if (idx == dc->num_reservations)
 		return;
 
+	char base_dir[MAX_PATH_SIZE];
 	char res_dir[MAX_PATH_SIZE];
-	int written = snprintf(res_dir, sizeof(res_dir), "%s/%s",
-	                       CLOUDIST_ROOT, reservation->id);
 
-	if (written > 0 && (size_t)written < sizeof(res_dir))
-		rmdir(res_dir);
+	if (cloudist_base_dir(base_dir, sizeof(base_dir)) == 0) {
+		int written = snprintf(res_dir, sizeof(res_dir), "%s/%s",
+		                       base_dir, reservation->id);
+
+		if (written > 0 && (size_t)written < sizeof(res_dir))
+			rmdir(res_dir);
+	}
 
 	// Remove the reservation by shifting the remaining ones.
 	memmove(&dc->reservations[idx],
@@ -350,15 +359,18 @@ static int make_dir(const char *path) {
 }
 
 int vm_prepare_directory(const char *reservation_id, VM *vm, char *vm_dir, size_t size) {
+	char base_dir[MAX_PATH_SIZE];
 	char res_dir[MAX_PATH_SIZE];
 	char input_folder[MAX_PATH_SIZE];
 
+	if (cloudist_base_dir(base_dir, sizeof(base_dir)) != 0)
+		return 1;
+
 	int res_written = snprintf(res_dir, sizeof(res_dir), "%s/%s",
-	                           CLOUDIST_ROOT, reservation_id);
+	                           base_dir, reservation_id);
 
 	int vm_written = snprintf(vm_dir, size, "%s/%s/%s",
-	                          CLOUDIST_ROOT, reservation_id, vm->id);
-
+	                          base_dir, reservation_id, vm->id);
 	if (res_written < 0 || (size_t)res_written >= sizeof(res_dir) ||
 	    vm_written < 0 || (size_t)vm_written >= size) {
 		fprintf(stderr, "VM directory path too long for VM %s.\n", vm->id);
@@ -372,7 +384,7 @@ int vm_prepare_directory(const char *reservation_id, VM *vm, char *vm_dir, size_
 
 	// copy_dir_recursive only creates the last component, so the two parents
 	// have to exist first.
-	if (make_dir(CLOUDIST_ROOT) != 0 || make_dir(res_dir) != 0)
+	if (make_dir(base_dir) != 0 || make_dir(res_dir) != 0)
 		return 1;
 
 	// Replicates the whole input tree into the VM's own folder.

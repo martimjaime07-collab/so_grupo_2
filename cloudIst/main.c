@@ -63,7 +63,7 @@ void vm_destroy(DataCenter *dc, pid_t term_vm);
 void reservation_destroy(DataCenter *dc, Reservation *reservation);
 
 /**
- * Builds the VM directory path (/tmp/CloudIST/<reserva>/<vm>), creates it
+ * Builds the VM directory path (/tmp/CloudIST-<user>/<reserva>/<vm>), creates it
  * along with any missing parent, and recursively replicates the contents of
  * the VM type's input directory into it.
  *

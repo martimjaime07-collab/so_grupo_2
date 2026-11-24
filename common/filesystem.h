@@ -1,7 +1,7 @@
 #define _XOPEN_SOURCE 700
 
 #include "filesystem.h"
-
+#include "constants.h"
 #include <sys/stat.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
+#include <pwd.h>
 
 int path_exists(const char *path){
   struct stat st;
@@ -86,7 +87,14 @@ static int copy_file(const char *src, const char *dst) {
   if (src_fd == -1)
     return 1;
 
-  int dst_fd = open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  // Keep the permissions of the original file (e.g. the execute bit of a script).
+  struct stat st;
+  if (fstat(src_fd, &st) != 0) {
+    close(src_fd);
+    return 1;
+  }
+
+  int dst_fd = open(dst, O_WRONLY | O_CREAT | O_TRUNC, st.st_mode & 0777);
 
   if (dst_fd == -1) {
     close(src_fd);
@@ -191,4 +199,28 @@ int remove_dir_recursive(const char *path) {
     ret = 1;
 
   return ret;
+}
+
+int cloudist_base_dir(char *buffer, size_t size) {
+  // Login of the user running CloudIST (on the lab PCs: the Tecnico ID).
+  // Falls back to the password database if USER is not set.
+  const char *user = getenv("USER");
+
+  if (user == NULL || user[0] == '\0') {
+    struct passwd *pw = getpwuid(getuid());
+    if (pw == NULL) {
+      fprintf(stderr, "Could not get the user name.\n");
+      return 1;
+    }
+    user = pw->pw_name;
+  }
+
+  int written = snprintf(buffer, size, "%s-%s", CLOUDIST_ROOT, user);
+
+  if (written < 0 || (size_t)written >= size) {
+    fprintf(stderr, "CloudIST base folder path too long.\n");
+    return 1;
+  }
+
+  return 0;
 }
