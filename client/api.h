@@ -1,96 +1,59 @@
+#ifndef API__H
+#define API__H
+
+#include <stddef.h>
+
+#include "common.h"
 #include "parser.h"
-#include "api.h"
-#include "constants.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <string.h>
-#include <signal.h>
-#include <errno.h>
+// Opcodes for client-server communication
+typedef enum {
+  CONNECT = 1,
+  DISCONNECT = 2,
+  DEFINE = 3,
+  RESERVE = 4,
+  EXE = 5,
+  LIST = 6,
+  NOOP = 7
+} Opcode;
 
-void run_commands(int);
 
-int main(int argc, char **argv){
-    if (argc != 5 && argc != 6) {
-        fprintf(stderr, "Usage: %s <client_id> <request_pipe_path> <response_pipe_path> <register_pipe_path> [.conf_file]\n", argv[0]);
-        return 1;
-    }
+/// Connects to an CloudIst server.
+/// @param req_pipe_path Path to the name pipe to be created for requests.
+/// @param resp_pipe_path Path to the name pipe to be created for responses.
+/// @param server_pipe_path Path to the name pipe where the server is listening.
+/// @param client_id unique number to identify the client in the server.
+/// @return 0 if the connection was established successfully, 1 otherwise.
+int cloudIst_connect(char const* req_pipe_path, char const* resp_pipe_path, char const* server_pipe_path, unsigned int client_id);
 
-    //stdin by default
-    int input_fd = STDIN_FILENO;
-    unsigned int client_id;
-    const char *req_pipe_path = argv[2];
-    const char *resp_pipe_path = argv[3];
-    const char *register_pipe_path = argv[4];
+/// Disconnects from an CloudIst server.
+/// @return 0 in case of success, 1 otherwise.
+int cloudIst_disconnect(void);
 
-    if (argc == 6) {
-        const char* dot = strrchr(argv[5], '.');
-        if (dot == NULL || dot == argv[5] || strlen(dot) != 5 || strcmp(dot, ".conf") ||
-            strlen(argv[5]) > MAX_PATH_SIZE) {
-            fprintf(stderr, "The provided .conf file path is not valid. Path: %s\n", argv[5]);
-            return 1;
-        }
 
-        input_fd = open(argv[5], O_RDONLY);
-        if (input_fd == -1) {
-            fprintf(stderr, "Failed to open input file. Path: %s\n", argv[5]);
-            return 1;
-        }
-    }
+/// @param VMType vm_type
+/// @return 0 if the type was created successfully, 1 otherwise.
+int cloudIst_define(VMType vm_type);
 
-    size_t parsed_long;
-    if(parse_size_t_arg(argv[1], &parsed_long)) {
-        fprintf(stderr, "client_id must be a number. Got: %s instead.\n", argv[1]);
-        return 1;
-    }
-    client_id = (unsigned int) parsed_long;
-    
-    if (cloudIst_connect(req_pipe_path, resp_pipe_path, register_pipe_path, client_id)) {
-        return 1;
-    }
 
-    run_commands(input_fd);
+/// Creates a new reservation for repective items
+/// @param Reservation reservation
+/// @return 0 if the reservation was created successfully, 1 otherwise.
+int cloudIst_reserve(Reservation reservation);
 
-    int ret = 0;
+/// Starts the given reservation
+/// @param reservation_id string that identifies the reservation
+/// @return 0 if the reservation was started succefully, 1 otherwise.
+int cloudIst_run(char* reservation_id);
 
-    if (cloudIst_disconnect() != 0)
-        ret = 1;
-    
-    if (close(input_fd) == -1) {
-        perror("Error closing input file");
-        return 1;
-    }
+/// lists all the vms of the client that are associated to reservations 
+/// @return 0 if the reservation was started succefully, 1 otherwise.
+int cloudIst_list_vms();
 
-    return ret;
-}
+/// Send the command cmd to the server
+/// @param cmd The command after being parsed
+/// @return 1 if the command is invalid, 0 otherwise.
+int send_command(ParsedCommand *cmd);
 
-void run_commands(int fd) {
-    
-    if (fd == STDIN_FILENO) {
-            printf("Enter \"H\" to check available commands!\n\n");
-            fflush(stdout);
-        }
 
-    while (1) {
-        if (fd == STDIN_FILENO) {
-            printf("> ");
-            fflush(stdout);
-        }
-
-        ParsedCommand cmd = {0};
-        parse_cmd(fd, &cmd);
-
-        if (cmd.type == EOC)
-            break;
-        
-        if (cmd.type == CMD_INVALID)
-            continue;
-
-        if (send_command(&cmd)) {
-           //EOC and CMD_INVALID should not be passed to send_command
-           break;
-        }
-    }
-}
+#endif // API__H
