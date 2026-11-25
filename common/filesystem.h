@@ -1,226 +1,98 @@
-#define _XOPEN_SOURCE 700
+#ifndef FILESYSTEM__H
+#define FILESYSTEM__H
 
-#include "filesystem.h"
-#include "constants.h"
-#include <sys/stat.h>
-#include <dirent.h>
-#include <fcntl.h>
-#include <limits.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <errno.h>
-#include <pwd.h>
+#include <stddef.h>
 
-int path_exists(const char *path){
-  struct stat st;
+/**
+ * Checks whether a path exists and is a directory.
+ *
+ * @param path Directory path.
+ *
+ * @return 1 if it exists and is a directory, 0 otherwise.
+ */
+int path_exists(const char *path);
 
-  if (stat(path, &st) != 0)
-    return 0;
+/**
+ * Checks whether a path exists and is a regular file.
+ *
+ * @param path File path.
+ *
+ * @return 1 if it exists and is a regular file, 0 otherwise.
+ */
+int file_exists(const char *path);
 
-  return S_ISDIR(st.st_mode);
-}
+/**
+ * Converts the given path into an absolute path, resolving symbolic links,
+ * relative components ('.' and '..'), and redundant separators. The resolved
+ * path is copied into the provided buffer.
+ *
+ * @param path Path to resolve.
+ * @param buffer Destination buffer where the absolute path will be stored.
+ * @param size Size of the destination buffer, in bytes.
+ *
+ * @return 0 if the path was successfully resolved and copied to the buffer
+ * @return 1 if the path could not be resolved or the buffer is too small.
+ */
+int absolute_path(const char *path, char *buffer, size_t size);
 
-int file_exists(const char *path){
-  struct stat st;
+/**
+ * Copies src into dst recursively, keeping the same structure. If src is a
+ * directory, dst is created and every entry inside is copied; if src is a
+ * file, it is simply copied.
+ *
+ * Only dst itself is created, so the parent directories of dst must already
+ * exist.
+ *
+ * Only directories and regular files are handled, using read()/write() and
+ * opendir()/readdir() (no stdio streams).
+ *
+ * @param src Source directory (or file) to copy.
+ * @param dst Destination path.
+ *
+ * @return 0 on success.
+ * @return 1 on error.
+ */
+int copy_dir_recursive(const char *src, const char *dst);
 
-  if (stat(path, &st) != 0)
-    return 0;
+/**
+ * Removes path recursively: if it is a directory, everything inside it is
+ * removed first and then the directory itself; if it is a file, it is just
+ * unlinked. A path that does not exist is not an error.
+ *
+ * @param path Directory (or file) to remove.
+ *
+ * @return 0 on success.
+ * @return 1 on error.
+ */
+int remove_dir_recursive(const char *path);
 
-  return S_ISREG(st.st_mode);
-}
+/**
+ * Writes into buffer the base folder of CloudIST for the current user:
+ * CLOUDIST_ROOT-<user> (e.g. /tmp/CloudIST-ist1123456). Each user gets their
+ * own folder, so users sharing /tmp (lab PCs) do not collide.
+ *
+ * @param buffer Destination buffer.
+ * @param size Size of the buffer, in bytes.
+ *
+ * @return 0 on success.
+ * @return 1 on error.
+ */
+int cloudist_base_dir(char *buffer, size_t size);
 
-int absolute_path(const char *path, char *buffer, size_t size){
-  char *resolved = realpath(path, NULL);
+/// Reads a given number of bytes from a file descriptor. Will block until all
+/// bytes are read, or fail if not all bytes could be read.
+/// @param fd File descriptor to read from.
+/// @param buffer Buffer to read into.
+/// @param size Number of bytes to read.
+/// @return On success, returns 1, on end of file, returns 0, on error, returns -1
+int read_all(int fd, void *buffer, size_t size);
 
-  if (resolved == NULL)
-    return 1;
+/// Writes a given number of bytes to a file descriptor. Will block until all
+/// bytes are written, or fail if not all bytes could be written.
+/// @param fd File descriptor to write to.
+/// @param buffer Buffer to write from.
+/// @param size Number of bytes to write.
+/// @return On success, returns 1, on error, returns -1
+int write_all(int fd, const void *buffer, size_t size);
 
-  if (strlen(resolved) >= size) {
-    free(resolved);
-    return 1;
-  }
-
-  strcpy(buffer, resolved);
-
-  free(resolved);
-  return 0;
-}
-
-int read_all(int fd, void *buffer, size_t size) {
-
-  size_t bytes_read = 0;
-  while (bytes_read < size) {
-    ssize_t result = read(fd, buffer + bytes_read, size - bytes_read);
-    if (result == -1) {
-      perror("Failed to read from pipe");
-      return -1;
-    } else if (result == 0) {
-      return 0;
-    }
-
-    bytes_read += (size_t)result;
-  }
-
-  return 1;
-}
-
-int write_all(int fd, const void *buffer, size_t size) {
-  size_t bytes_written = 0;
-  while (bytes_written < size) {
-    ssize_t result = write(fd, buffer + bytes_written, size - bytes_written);
-    if (result == -1) {
-      perror("Failed to write to pipe");
-      return -1;
-    }
-
-    bytes_written += (size_t)result;
-  }
-
-  return 1;
-}
-
-static int copy_file(const char *src, const char *dst) {
-  int src_fd = open(src, O_RDONLY);
-
-  if (src_fd == -1)
-    return 1;
-
-  // Keep the permissions of the original file (e.g. the execute bit of a script).
-  struct stat st;
-  if (fstat(src_fd, &st) != 0) {
-    close(src_fd);
-    return 1;
-  }
-
-  int dst_fd = open(dst, O_WRONLY | O_CREAT | O_TRUNC, st.st_mode & 0777);
-
-  if (dst_fd == -1) {
-    close(src_fd);
-    return 1;
-  }
-
-  char buf[4096];
-  int ret = 0;
-  ssize_t bytes_read;
-
-  while ((bytes_read = read(src_fd, buf, sizeof(buf))) > 0) {
-    if (write_all(dst_fd, buf, (size_t)bytes_read) != 1) {
-      ret = 1;
-      break;
-    }
-  }
-
-  if (bytes_read < 0)
-    ret = 1;
-
-  close(src_fd);
-  close(dst_fd);
-
-  return ret;
-}
-
-int copy_dir_recursive(const char *src, const char *dst) {
-  DIR *dir = opendir(src);
-
-  // opendir() fails when src is not a directory, treating it as a plain file.
-  if (dir == NULL)
-    return copy_file(src, dst);
-
-  // Creates dst itself. Its parents must already exist.
-  if (mkdir(dst, 0755) != 0 && errno != EEXIST) {
-    closedir(dir);
-    return 1;
-  }
-
-  int ret = 0;
-  struct dirent *entry;
-
-  while ((entry = readdir(dir)) != NULL) {
-    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-      continue;
-
-    char src_path[PATH_MAX];
-    char dst_path[PATH_MAX];
-
-    int src_len = snprintf(src_path, sizeof(src_path), "%s/%s", src, entry->d_name);
-    int dst_len = snprintf(dst_path, sizeof(dst_path), "%s/%s", dst, entry->d_name);
-
-    if (src_len < 0 || (size_t)src_len >= sizeof(src_path) ||
-        dst_len < 0 || (size_t)dst_len >= sizeof(dst_path)) {
-      ret = 1;
-      continue;
-    }
-
-    if (copy_dir_recursive(src_path, dst_path) != 0)
-      ret = 1;
-  }
-
-  closedir(dir);
-
-  return ret;
-}
-
-int remove_dir_recursive(const char *path) {
-  DIR *dir = opendir(path);
-
-  // Same trick as copy_dir_recursive: opendir() fails when path is not a
-  // directory, so it is a plain file and a single unlink() is enough.
-  if (dir == NULL) {
-    if (unlink(path) != 0 && errno != ENOENT)
-      return 1;
-    return 0;
-  }
-
-  int ret = 0;
-  struct dirent *entry;
-
-  while ((entry = readdir(dir)) != NULL) {
-    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-      continue;
-
-    char child[PATH_MAX];
-
-    int len = snprintf(child, sizeof(child), "%s/%s", path, entry->d_name);
-
-    if (len < 0 || (size_t)len >= sizeof(child)) {
-      ret = 1;
-      continue;
-    }
-
-    if (remove_dir_recursive(child) != 0)
-      ret = 1;
-  }
-
-  closedir(dir);
-
-  if (rmdir(path) != 0 && errno != ENOENT)
-    ret = 1;
-
-  return ret;
-}
-
-int cloudist_base_dir(char *buffer, size_t size) {
-  // Login of the user running CloudIST (on the lab PCs: the Tecnico ID).
-  // Falls back to the password database if USER is not set.
-  const char *user = getenv("USER");
-
-  if (user == NULL || user[0] == '\0') {
-    struct passwd *pw = getpwuid(getuid());
-    if (pw == NULL) {
-      fprintf(stderr, "Could not get the user name.\n");
-      return 1;
-    }
-    user = pw->pw_name;
-  }
-
-  int written = snprintf(buffer, size, "%s-%s", CLOUDIST_ROOT, user);
-
-  if (written < 0 || (size_t)written >= size) {
-    fprintf(stderr, "CloudIST base folder path too long.\n");
-    return 1;
-  }
-
-  return 0;
-}
+#endif // FILESYSTEM__H
