@@ -1,65 +1,25 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
+CC = gcc
 
-#include "parser.h"
-#include "datacenter.h"
-#include "../common/constants.h"
-#include "../common/filesystem.h"
+CFLAGS = -ggdb -std=c17 -D_POSIX_C_SOURCE=200809L -pthread \
+		 -Wall -Werror -Wextra \
+		 -Wcast-align -Wconversion -Wfloat-equal -Wformat=2 -Wnull-dereference -Wshadow -Wsign-conversion -Wundef -Wunreachable-code -Wunused \
+ 		 -fsanitize=undefined
 
-int main(int argc, char **argv){
-    DataCenter dc;
-    if(datacenter_init(&dc)) {
-       return 1;
-    }
+ifneq ($(shell uname -s),Darwin) # if not MacOS
+	CFLAGS += -fmax-errors=5
+endif
 
-    int result = 1;
-    if (argc != 8 ) {
-        fprintf(stderr, "Usage: %s <servers> <ram> <disk> <cpus> <num_cores> <input_dir> <num_workers>\n", argv[0]);
-        goto cleanup;
-     }
+all: cloudIST
 
-    size_t servers;
-    size_t ram;
-    size_t disk;
-    double cpu;
-    size_t num_cores;
-    size_t num_workers;
-    char * input_path;
+cloudIST: main.c ../common/constants.h  ../common/common.h parser.o datacenter.o datacenter_utils.o resources.o ../common/filesystem.o
+	$(CC) $(CFLAGS) $(SLEEP) -o cloudIST main.c parser.o datacenter.o datacenter_utils.o resources.o filesystem.o -lm
 
-    if (parse_size_t_arg(argv[1], &servers) != 0 ||
-            parse_size_t_arg(argv[2], &ram) != 0 ||
-            parse_size_t_arg(argv[3], &disk) != 0 ||
-            parse_double_arg(argv[4], &cpu) != 0 ||
-            parse_size_t_arg(argv[5], &num_cores) != 0 ||
-            parse_size_t_arg(argv[7], &num_workers) != 0 ||
-            num_cores == 0 || num_workers == 0) {
-        fprintf(stderr, "Invalid command line arguments.\n");
-        goto cleanup;
-    }
+%.o: %.c %.h
+	$(CC) $(CFLAGS) -c ${@:.o=.c}
 
-    input_path = argv[6];
+clean:
+	rm -f *.o cloudIST
 
-    if (!path_exists(input_path)) {
-        fprintf(stderr, "Invalid input path.\n");
-        goto cleanup;
-    }
-
-    Resources resources = {
-    .ram = ram,
-    .disk = disk,
-    .cpu = cpu
-    };
-
-    if(datacenter_run(&dc, servers, &resources, input_path, num_workers, num_cores) != 0){
-        fprintf(stderr, "Failed to configure Data Center.\n");
-        goto cleanup;
-    }
-
-    result = 0;
-
-cleanup:
-    // Stop the waiter and release Data Center resources on every exit path.
-    datacenter_destroy(&dc);
-    return result;
-}
+format:
+	@which clang-format >/dev/null 2>&1 || echo "Please install clang-format to run this command"
+	clang-format -i *.c *.h

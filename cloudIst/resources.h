@@ -1,34 +1,56 @@
-#include "resources.h"
+#ifndef RESOURCES__H
+#define RESOURCES__H
 
-#include <math.h>
+#include <stddef.h>
+#include "../common/common.h"
 
-#define CPU_EPSILON 1e-9
+/**
+ * This function verifies if a double precision CPU value is sufficiently
+ * close to an integer, accounting for floating-point precision errors.
+ *
+ * @param cpu CPU value to check.
+ *
+ * @return 1 if the value is an integer (within the allowed precision),
+ * @return 0 otherwise.
+ */
+int resources_cpu_is_integer(double cpu);
 
+/**
+ * Checks whether a resource set can satisfy another.
+ *
+ * @param available Available resources.
+ * @param required Required resources.
+ *
+ * @return 1 if available resources are sufficient, 0 otherwise.
+ */
+int resources_can_fit(Resources available, Resources required);
 
-int resources_cpu_is_integer(double cpu){
-  return fabs(cpu - round(cpu)) < CPU_EPSILON;
-}
+/**
+ * Adds one resource set to another.
+ *
+ * @param dst Resource set to update.
+ * @param src Resources to add.
+ */
+void resources_add(Resources *dst, Resources src);
 
-int resources_can_fit(Resources available, Resources required) {
-  return available.ram >= required.ram &&
-         available.disk >= required.disk &&
-         available.cpu >= required.cpu;
-}
+/**
+ * Subtracts one resource set from another.
+ *
+ * Assumes that dst contains at least the resources in src.
+ *
+ * @param dst Resource set to update.
+ * @param src Resources to subtract.
+ */
+void resources_sub(Resources *dst, Resources src);
 
-void resources_add(Resources *dst, Resources src) {
-  dst->ram += src.ram;
-  dst->disk += src.disk;
-  dst->cpu += src.cpu;
-}
+/**
+ * Checks whether two resource sets are equal.
+ *
+ * @param a First resource set.
+ * @param b Second resource set.
+ *
+ * @return 1 if equal, 0 otherwise.
+ */
+int resources_equal(Resources a, Resources b);
 
-void resources_sub(Resources *dst, Resources src) {
-  dst->ram -= src.ram;
-  dst->disk -= src.disk;
-  dst->cpu -= src.cpu;
-}
-
-int resources_equal(Resources a, Resources b) {
-    return a.ram == b.ram &&
-           a.disk == b.disk &&
-           fabs(a.cpu - b.cpu) < CPU_EPSILON;
-}
+#endif
